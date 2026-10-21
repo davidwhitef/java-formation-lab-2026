@@ -6,7 +6,6 @@ import com.indra.retail.entities.OrderItem;
 import com.indra.retail.entities.Product;
 import org.hibernate.LazyInitializationException;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +16,9 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 class LazyLoadingTest {
@@ -29,24 +30,25 @@ class LazyLoadingTest {
     private TransactionTemplate transactionTemplate;
 
     private Long orderId;
+    private Long productId;
 
     @BeforeEach
     void createOrderWithItems() {
-        // Todo en una transacción: las entidades quedan managed y el test no
-        // depende de qué cascade tenga el mapeo.
-        orderId = transactionTemplate.execute(status -> {
+        Long[] ids = transactionTemplate.execute(status -> {
             Customer customer = manager.create(new Customer("Carla", UUID.randomUUID() + "@indra.com"));
             Product product = manager.create(new Product("Laptop", new BigDecimal("1500.00"), 4));
             Order order = new Order(customer);
             order.addItem(new OrderItem(product, 1, product.getPrice()));
-            return manager.create(order).getId();
+            Long id = manager.create(order).getId();
+            return new Long[] {id, product.getId()};
         });
+        orderId = ids[0];
+        productId = ids[1];
     }
 
     @Test
     @DisplayName("Acceder a items fuera de la transacción lanza LazyInitializationException")
     void shouldThrowLazyInitializationExceptionOutsideTransaction() {
-        // findById abre y cierra su transacción: la Order sale DETACHED
         Order order = manager.findById(Order.class, orderId).orElseThrow();
 
         assertThrows(LazyInitializationException.class, () -> order.getItems().size());
@@ -63,37 +65,62 @@ class LazyLoadingTest {
         assertEquals(1, itemCount);
     }
 
-    // ───────────────────────── Retos para participantes ─────────────────────────
-
     @Test
-    @Disabled("TODO(participante): habilitar tras cambiar las relaciones a LAZY")
     @DisplayName("Customer de un Order no se carga hasta que se usa (LAZY)")
     void shouldLoadCustomerLazily() {
-        // TODO: con Order.customer en LAZY, acceder a order.getCustomer().getName()
-        // fuera de la transacción debe lanzar LazyInitializationException,
-        // y dentro de una transacción debe funcionar.
+        Order order = manager.findById(Order.class, orderId).orElseThrow();
+
+        assertThrows(LazyInitializationException.class, () -> order.getCustomer().getName());
+
+        String customerName = transactionTemplate.execute(status -> {
+            Order managed = manager.findById(Order.class, orderId).orElseThrow();
+            return managed.getCustomer().getName();
+        });
+        assertEquals("Carla", customerName);
     }
 
     @Test
-    @Disabled("TODO(participante): habilitar tras configurar orphanRemoval = true")
     @DisplayName("Quitar un ítem de la lista elimina la fila (orphanRemoval)")
     void shouldRemoveOrphanItem() {
-        // TODO: dentro de una transacción, quitar un ítem de order.getItems()
-        // y verificar que ya no existe en la base de datos.
+        transactionTemplate.execute(status -> {
+            Order order = manager.findById(Order.class, orderId).orElseThrow();
+            OrderItem item = order.getItems().get(0);
+            order.removeItem(item);
+            manager.update(order);
+            return null;
+        });
+
+        boolean stillExists = transactionTemplate.execute(status -> {
+            Order order = manager.findById(Order.class, orderId).orElseThrow();
+            return !order.getItems().isEmpty();
+        });
+
+        assertFalse(stillExists, "El OrderItem debería haberse eliminado de la BD (orphanRemoval)");
     }
 
     @Test
-    @Disabled("TODO(participante): habilitar tras hacer order_id NOT NULL")
     @DisplayName("No se puede guardar un OrderItem sin Order")
     void shouldRejectOrphanOrderItem() {
-        // TODO: persistir un OrderItem sin Order debe fallar
-        // (p. ej. DataIntegrityViolationException / ConstraintViolationException).
+        assertThrows(Exception.class, () -> transactionTemplate.execute(status -> {
+            Product product = manager.findById(Product.class, productId).orElseThrow();
+            OrderItem orphan = new OrderItem(product, 1, product.getPrice());
+            manager.create(orphan);
+            status.flush();
+            return null;
+        }));
     }
 
     @Test
-    @Disabled("TODO(participante): habilitar tras quitar cascade desde OrderItem hacia Product")
     @DisplayName("Borrar un OrderItem no borra el Product")
     void shouldNotDeleteProductWhenDeletingItem() {
-        // TODO: eliminar un OrderItem y verificar que su Product sigue existiendo.
+        transactionTemplate.execute(status -> {
+            Order order = manager.findById(Order.class, orderId).orElseThrow();
+            OrderItem item = order.getItems().get(0);
+            manager.delete(OrderItem.class, item.getId());
+            return null;
+        });
+
+        assertTrue(manager.findById(Product.class, productId).isPresent(),
+                "El Product no debe eliminarse al borrar el OrderItem (sin cascade)");
     }
 }

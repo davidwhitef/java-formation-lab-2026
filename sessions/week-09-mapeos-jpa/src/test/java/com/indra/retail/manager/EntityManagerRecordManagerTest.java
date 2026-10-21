@@ -3,6 +3,7 @@ package com.indra.retail.manager;
 import com.indra.retail.entities.Customer;
 import com.indra.retail.entities.Order;
 import com.indra.retail.entities.OrderItem;
+import com.indra.retail.entities.OrderStatus;
 import com.indra.retail.entities.Product;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,10 +19,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * CRUD básico (crear, consultar, actualizar, eliminar) con EntityManager.
- * Cada test usa datos únicos, así que no dependen del orden de ejecución.
- */
 @SpringBootTest
 class EntityManagerRecordManagerTest {
 
@@ -85,8 +82,6 @@ class EntityManagerRecordManagerTest {
     @Test
     @DisplayName("Persiste un Order con sus ítems en cascada")
     void shouldPersistOrderWithItems() {
-        // Todo en una transacción: las entidades quedan managed y el test no
-        // depende de qué cascade tenga el mapeo.
         Long[] ids = transactionTemplate.execute(status -> {
             Customer customer = manager.create(new Customer("Marta", uniqueEmail()));
             Product product = manager.create(new Product("Monitor", new BigDecimal("300.00"), 3));
@@ -97,7 +92,7 @@ class EntityManagerRecordManagerTest {
         });
 
         Order found = manager.findById(Order.class, ids[0]).orElseThrow();
-        assertEquals("PENDING", found.getStatus());
+        assertEquals(OrderStatus.PENDING, found.getStatus());
         assertEquals(ids[1], found.getCustomer().getId());
     }
 }
