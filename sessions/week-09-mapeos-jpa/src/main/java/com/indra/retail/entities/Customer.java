@@ -1,13 +1,16 @@
 package com.indra.retail.entities;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 
 
 @Entity
@@ -18,20 +21,36 @@ public class Customer {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false, length = 100)
     private String name;
 
-    @Column
+    @Column(nullable = false, unique = true, length = 100)
     private String email;
 
-    private LocalDateTime createdAt = LocalDateTime.now();
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @Embedded
+    private Address address;
 
     protected Customer() {
-     
+
     }
 
     public Customer(String name, String email) {
         this.name = name;
         this.email = email;
+    }
+
+    public Customer(String name, String email, Address address) {
+        this(name, email);
+        this.address = address;
+    }
+
+    @PrePersist
+    void onCreate() {
+        //truncar evita que el valor en memoria difiera del guardado
+        createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
     }
 
     public Long getId() {
@@ -56,5 +75,13 @@ public class Customer {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public Address getAddress() {
+        return address;
+    }
+
+    public void setAddress(Address address) {
+        this.address = address;
     }
 }
