@@ -3,13 +3,14 @@ package com.indra.jpa.transactions.service;
 import java.math.BigDecimal;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.indra.jpa.transactions.exception.InsufficientFundsException;
 import com.indra.jpa.transactions.model.Account;
 import com.indra.jpa.transactions.model.TransferEvent;
 import com.indra.jpa.transactions.repository.AccountRepository;
 
-@Service 
+@Service
 public class TransferService {
 
     private final AccountRepository accountRepository;
@@ -20,6 +21,7 @@ public class TransferService {
         this.transferAuditService = transferAuditService;
     }
 
+    @Transactional(rollbackFor = InsufficientFundsException.class)
     public void transfer(Long fromAccountId, Long toAccountId, BigDecimal amount)
             throws InsufficientFundsException {
         if (amount == null || amount.signum() <= 0) {
@@ -40,14 +42,14 @@ public class TransferService {
         event.setAmount(amount);
         transferAuditService.log(event);
 
-        fromAccount.setBalance(fromAccount.getBalance().subtract(amount));
-        accountRepository.saveAndFlush(fromAccount);
-        if (fromAccount.getBalance().signum() < 0) {
+        if (fromAccount.getBalance().compareTo(amount) < 0) {
             throw new InsufficientFundsException("Insufficient funds in account " + fromAccountId);
         }
+
+        fromAccount.setBalance(fromAccount.getBalance().subtract(amount));
+        accountRepository.save(fromAccount);
 
         toAccount.setBalance(toAccount.getBalance().add(amount));
         accountRepository.save(toAccount);
     }
-
 }
